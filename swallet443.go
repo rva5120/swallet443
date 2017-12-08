@@ -117,9 +117,9 @@ func createWallet(filename string) *wallet {
 	// WALLET [Password, Salt, Comment]
 	// 1. Prompt the user for a master password twice (do not echo when entering)
 	// UI NEEDED
-	fmt.Printf("Please enter your password: ")
+	fmt.Printf("\x1b[34;1mPlease enter your password: ")
 	pass_1, _ := gopass.GetPasswd()
-	fmt.Printf("Please re-enter your password: ")
+	fmt.Printf("P\x1b[34;1mPlease re-enter your password: ")
 	pass_2, _ := gopass.GetPasswd()
 	password_1 := string(pass_1)
 	password_2 := string(pass_2)
@@ -132,7 +132,7 @@ func createWallet(filename string) *wallet {
 		copy(wal443.masterPassword, password_1)
 	} else {
 		// Passwords don't match, so throw an error
-		fmt.Printf("ERROR passwords did not match\n")
+		fmt.Printf("\x1b[31;1mERROR passwords did not match\n")
 		os.Exit(-1)
 	}
 
@@ -192,7 +192,7 @@ func loadWallet(filename string) *wallet {
 	// Prompt user for master password
 	// UI NEEDED
 	//password := "test2"
-	fmt.Printf("Please enter your password: ")
+	fmt.Printf("\x1b[92;1mPlease enter your password: \x1b[0m")
 	pass, _ := gopass.GetPasswd()
 	password := string(pass)
 	copy(wal443.masterPassword, password)
@@ -267,7 +267,7 @@ func loadWallet(filename string) *wallet {
 	// Check if the two hashes are equal
 	if !(hmac.Equal(file_hmac, new_hmac)) {
 		// Wrong password entered
-		fmt.Printf("Aborting, wrong password entered!!\n")
+		fmt.Printf("\x1b[31;3mAborting, wrong password entered!!\n")
 		os.Exit(-1)
 	}
 
@@ -327,7 +327,7 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 		// Prompt the user for a password
 		// UI NEEDED
 		//password := "testing"
-		fmt.Printf("Please enter the new password you would like to store: ")
+		fmt.Printf("\x1b[92mPlease enter the new password you would like to store: ")
 		pass,_ := gopass.GetPasswd()
 		password := string(pass)
 		pwd := make([]byte, 16, 16)
@@ -345,7 +345,7 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 		// Prompt the user for a comment
 		// UI NEEDED
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Printf("Please enter a description/comment about this password (press Enter when finished): ")
+		fmt.Printf("\x1b[92mPlease enter a description/comment about this password (press Enter when finished): ")
 		comment, _ := reader.ReadString('\n')
 		comment = strings.TrimSuffix(comment, "\n")
 		//comment := "comment"
@@ -365,7 +365,7 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 		// Prompt the user for a password
 		// UI NEEDED
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Printf("Which entry would you like to delete (use list/show to see more): ")
+		fmt.Printf("\x1b[91mWhich entry would you like to delete (use list/show to see more): ")
 		entry,_ := reader.ReadString('\n')
 		entry = strings.TrimSuffix(entry, "\n")
 		//entry := "1"
@@ -378,7 +378,7 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 		// Prompt the user for keyword in comment
 		// UI NEEDED
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Printf("Enter a keyword present on the comment of the entries you would like to see displayed: ")
+		fmt.Printf("\x1b[93mEnter a keyword present on the comment of the entries you would like to see displayed: ")
 		keyword,_ := reader.ReadString('\n')
 		keyword = strings.TrimSuffix(keyword, "\n")
 		//keyword := "comment"
@@ -394,7 +394,7 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 				password,_ := aesgcm.Open(nil, entry.salt, entry.password, nil)
 				pwd := string(password)
 				// Show entry, password and comment
-				fmt.Printf("Entry %d \t Password: %s \t Comments: %s\n",index+1, pwd, string(entry.comment))
+				fmt.Printf("\x1b[97mEntry %d \t Password: %s \t Comments: %s\n",index+1, pwd, string(entry.comment))
 			}
 		}
 
@@ -402,7 +402,7 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 		// Prompt the user for entry number to change password
 		// UI NEEDED
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Printf("Provide the entry number of teh password you would like to change: ")
+		fmt.Printf("\x1b[94mProvide the entry number of teh password you would like to change: ")
 		entry,_ := reader.ReadString('\n')
 		entry = strings.TrimSuffix(entry, "\n")
 		//entry := "1"
@@ -410,7 +410,7 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 		pos = pos - 1
 		// Prompt the user for new password
 		// UI NEEDED
-		fmt.Printf("Enter the new password for this entry: ")
+		fmt.Printf("\x1b[94mEnter the new password for this entry: ")
 		pass,_ := gopass.GetPasswd()
 		password := string(pass)
 		//password := "testing2"
@@ -427,7 +427,7 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 	case "reset":
 		// Prompt the user for a new password
 		// UI NEEDED
-		fmt.Printf("Please enter the new file password: ")
+		fmt.Printf("\x1b[95mPlease enter the new file password: ")
 		pass,_ := gopass.GetPasswd()
 		password := string(pass)
 		//password := "test2"
@@ -447,8 +447,8 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 			aesgcm,_ =cipher.NewGCMWithNonceSize(block,16)
 			encrypted_password := aesgcm.Seal(nil, entry.salt, decrypted_password, nil)
 			wal443.passwords[index].password = encrypted_password
-			fmt.Printf("New Password encrypted %s\n", encrypted_password)
-			fmt.Printf("Password decrypted %s\n", decrypted_password)
+			//fmt.Printf("New Password encrypted %s\n", encrypted_password)
+			//fmt.Printf("Password decrypted %s\n", decrypted_password)
 		}
 		// Update master key and password
 		w_k = new_w_k
@@ -458,12 +458,12 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 		// Iterate through the wallet entries, and print entry num, and comments
 		for index,entry := range wal443.passwords {
 			comments := string(entry.comment)
-			fmt.Printf("Entry %d \t Comments: %s\n", index+1, comments)
+			fmt.Printf("\x1b[96mEntry %d \t Comments: %s\n", index+1, comments)
 		}
 
 	default:
 		// Handle error, return failure
-		fmt.Fprintf(os.Stderr, "Bad/unknown command for wallet [%s], aborting.\n", command)
+		fmt.Fprintf(os.Stderr, "\x1b[31;3mBad/unknown command for wallet [%s], aborting.\n", command)
 		return false
 	}
 
