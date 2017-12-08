@@ -24,6 +24,8 @@ import (
 	"encoding/base64"
 	"crypto/sha1"
 	"crypto/hmac"
+	"crypto/aes"
+	"crypto/cipher"
 	"strconv"
 	"encoding/hex"
 	"regexp"
@@ -173,7 +175,7 @@ func loadWallet(filename string) *wallet {
 	// Setup the wallet
 	var wal443 wallet
 	wal443.masterPassword = make([]byte, 32, 32) // You need to take it from here
-	wal443.passwords = make([]walletEntry, 0, )
+	wal443.passwords = make([]walletEntry, 0)
 	// DO THE LOADING HERE
 
 	// Set wallet filename
@@ -306,56 +308,115 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 		// Prompt the user for a password
 		// UI NEEDED
 		password := "testing"
-		// Add new entry to passwords[]
+		pwd := make([]byte, 16, 16)
+		copy(pwd, password)
+		// Make new entry for passwords[]
 		var new_entry walletEntry
 		// Generate salt
-
-		// Zero right pad password
+		rand.Seed(time.Now().UnixNano())
+		salt := make([]byte, 16)
+		rand.Read(salt)
+		// Encrypt password
+		block,_ := aes.NewCipher(w_k)
+		aesgcm,_ := cipher.NewGCM(block)
+		encrypted_password := aesgcm.Seal(nil, salt, pwd, nil)
 		// Prompt the user for a comment
 		// UI NEEDED
-		// 128-bit AES encrypt the password: AES(w_k, salt|pwd)
+		comment = "comment"
+		comment_padded := make([]byte, 128, 128)
+		copy(comment_padded, comment)
+		// Zero right pad password
+		//pwd = make([]byte, 32, 32)
+		//copy(pwd, encrypted_password)
+		pwd = encrypted_password
 		// Save salt, password and comment to passwords[]
+		new_entry.salt = salt
+		new_entry.password = pwd
+		new_entry.comment = comment_padded
 		append(wal443, new_entry)
 
 	case "del":
-		// DO SOMETHING HERE
 		// Prompt the user for a password
 		// UI NEEDED
-		password := "testing"
-		// Decrypts every password in passwords[]
-		// 	compare to desired password
-		// 	when found, remove entry
+		entry := "0"
+		entry, _ = strconv.Atoi(entry)
+		pos := entry - 1
+		// Remove entry
+		wal443.passwords = append(wal443.passwords[:pos], wal443.passwords[pos+1:]...)
 
 	case "show":
-		// DO SOMETHING HERE
 		// Prompt the user for keyword in comment
 		// UI NEEDED
 		keyword = "comment"
 		// Look for keyword in comments of each entry in passwords[]
-		//	when found, decrypt password and show entry, password and comment
+		for index, entry := range wal443.passwords {
+			// when found, decrypt password and show entry, password and comment
+			// regex
+			if regexp.MatchString(keyword+".*", string(entry.comment)) {
+				// Decrypt password
+				block, _ := aes.NewCipher(w_k)
+				aesgcm, _ := cipher.NewGCM(block)
+				password,_ := aesgcm.Open(nil, entry.salt, entry.password, nil)
+				pwd := string(password)
+				// Show entry, password and comment
+				fmt.Printf("Entry %d \t Password: %s \t Comments: %s\n",index, pwd, string(entry.comments))
+			}
+		}
 
 	case "chpw":
-		// DO SOMETHING HERE
-		// Run "show" code
 		// Prompt the user for entry number to change password
 		// UI NEEDED
 		entry = "1"
 		// Prompt the user for new password
 		// UI NEEDED
 		password = "testing2"
-		// Zero right pad password
+		pwd := make([]byte, 16, 16)
+		copy(pwd, password)
 		// 128-bit AES encrypt the password: AES(w_k, salt|pwd)
+		var old_entry walletEntry
+		salt := old_entry.salt
+		block,_ := aes.NewCipher(w_k)
+		aesgcm,_ := cipher.NewGCM(block)
+		encrypted_password := aesgcm.Seal(nil, salt, pwd, nil)
 		// Save password to entry in passwords[]
+		pwd = encrypted_password
+		new_entry.salt = salt
+		new_entry.password = pwd
+		new_entry.comment = comment_padded
+		append(wal443, new_entry)
 
 	case "reset":
-		// DO SOMETHING HERE
 		// Prompt the user for a new password
 		// UI NEEDED
+		password := "test2"
+		new_masterPassword := make([]byte, 32, 32)
+		copy(new_masterPassword, password)
+		// Generate new master key
+		masterPassword_sha1 := sha1.Sum(new_masterPassword)
+		new_w_k = masterPassword_sha1[:16]
 		// For every password, decrypt it, and encrypt it again with new password
+		for index, entry := range wal443.passwords {
+			// Decrypt with old key
+			block, _ := aes.NewCipher(w_k)
+			aesgcm, _ := cipher.NewGCM(block)
+			decrypted_password,_ := aesgcm.Open(nil, entry.salt, entry.password, nil)
+			// Encrypt with new key
+			block,_ := aes.NewCipher(new_w_k)
+			aesgcm,_ :=cipher.NewGCM(block)
+			encrypted_password := aesgcm.Seal(nil, entry.salt, decrypted_password, nil)
+			entry.password = encrypted_password
+		}
+		// Update master key and password
+		w_k = new_w_k
+		copy(wal443.masterPassword, password)
 
 	case "list":
-		// DO SOMETHING HERE
 		// Iterate through the wallet entries, and print entry num, and comments
+		for index,entry := range wal443.passwords {
+			comments = string(entry.comment)
+			fmt.Printf("Entry %d \t Comments: %s\n", index, comments)
+		}
+
 	default:
 		// Handle error, return failure
 		fmt.Fprintf(os.Stderr, "Bad/unknown command for wallet [%s], aborting.\n", command)
@@ -365,11 +426,23 @@ func (wal443 wallet) processWalletCommand(command string) bool {
 	// Update file_contents for saving...
 	// Add entry number || salt || password || comment \n to file_contents for every entry
 	// Simultaneously, add the same infor without \n to file_contents_for_hmac
-	file_contents = 
-	file_contents_for_hmac = 
+	for index, entry := range wal443.passwords {
+		// file_contents
+		// base64 encode salt and password
+		salt_base64 = base64.StdEncoding.EncodeToString(entry.salt)
+		pass_base64 = base64.StdEncoding.EncodeToString(entry.password)
+		file_contents_for_hmac = file_contents_for_hmac + strconv.Itoa(index) + "||" + salt_base64 + "||" + pass_base64 + "||" + string(entry.comment)
+		file_contents = file_contents + file_contents_for_hmac + "\n"
+	}
+	file_contents_for_hmac = []byte(file_contents_for_hmac)
 
 	// Update HMAC after changes for saving...
-	file_hmac_base64 = 
+	HMAC_calc := hmac.New(sha1.New, w_k)
+	HMAC_calc.Write(file_contents_for_hmac)
+	file_hmac := HMAC_calc.Sum(nil)
+
+	// 9. Perform base64 encoding of hmac
+	file_hmac_base64 = base64.StdEncoding.EncodeToString(file_hmac)
 
 	// Return sucessfull
 	return true
