@@ -12,9 +12,11 @@
 package main
 
 // Imports
-import ( 
+import (
 	"fmt"
 	"os"
+	"io/ioutil"
+	"bufio"
 	"time"
 	"strings"
 	"math/rand"
@@ -24,6 +26,7 @@ import (
 	"crypto/hmac"
 	"strconv"
 	"encoding/hex"
+	"regexp"
 	// There will likely be several mode APIs you need
 )
 
@@ -64,7 +67,10 @@ where:
 
 var verbose bool = true
 
-
+var file_contents string = ""
+var file_hmac_base64 string = ""
+var generation_number int = 0
+var w_k []byte
 // You may want to create more global variables
 
 //
@@ -108,13 +114,14 @@ func createWallet(filename string) *wallet {
 
 	// WALLET [Password, Salt, Comment]
 	// 1. Prompt the user for a master password twice (do not echo when entering)
+	// UI NEEDED
 	password_1 := "test"
 	password_2 := "test"
 
 	// 2. Compare the passwords and store it if they are the same
 	if password_1 == password_2 {
 		// Store the password
-		copy(wal443.masterPassword[:], password_1)
+		copy(wal443.masterPassword, password_1)
 	} else {
 		// Passwords don't match, so throw an error
 		fmt.Printf("ERROR passwords did not match\n")
@@ -134,17 +141,12 @@ func createWallet(filename string) *wallet {
 	pipe_symbols := string(pipe_symbols_dec)
 
 	// 6. Write contents to the file and setup data for the hmac
-	file_contents := systemTime.String() + pipe_symbols + generation_number_str + pipe_symbols
+	file_contents = systemTime.String() + pipe_symbols + generation_number_str + pipe_symbols
 	file_contents_arr := []byte(file_contents)
-	_, err2 := file.WriteString(file_contents)
-	if err2 != nil {
-		panic(err)
-	}
-	file.WriteString("\n")
 
 	// 7. Convert masterPassword to 128-bit AES: w_k = truncate(16, sha1(masterPassword))
 	masterPassword_sha1 := sha1.Sum(wal443.masterPassword)
-	w_k := masterPassword_sha1[:16]
+	w_k = masterPassword_sha1[:16]
 
 	// 8. Perform HMAC(key = w_k, message = lines in the file)
 	HMAC_calc := hmac.New(sha1.New, w_k)
@@ -152,15 +154,7 @@ func createWallet(filename string) *wallet {
 	file_hmac := HMAC_calc.Sum(nil)
 
 	// 9. Perform base64 encoding of hmac
-	file_hmac_base64 := base64.StdEncoding.EncodeToString(file_hmac)
-
-	// 10. Add HMAC to the file
-	file_hmac_base64_str := string(file_hmac_base64[:])
-	_, err3 := file.WriteString(file_hmac_base64_str)
-	if err3 != nil {
-		panic(err3)
-	}
-	file.WriteString("\n")
+	file_hmac_base64 = base64.StdEncoding.EncodeToString(file_hmac)
 
 	// Return the wall
 	return &wal443
@@ -178,7 +172,91 @@ func loadWallet(filename string) *wallet {
 
 	// Setup the wallet
 	var wal443 wallet
+	wal443.masterPassword = make([]byte, 32, 32) // You need to take it from here
+	wal443.passwords = make([]walletEntry, 0, )
 	// DO THE LOADING HERE
+
+	// Set wallet filename
+	wal443.filename = filename
+
+	// Prompt user for master password
+	// UI NEEDED
+	password := "test"
+	copy(wal443.masterPassword, password)
+
+	// Load Entries, if any
+	// Open the file
+	file, err := os.Open(wal443.filename)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	// Start Reading the file...
+	scanner := bufio.NewScanner(file)
+
+	// Line counter
+	first_line_counter := 0
+
+	// Process file
+	for scanner.Scan() {
+
+		line := scanner.Text()
+
+		if first_line_counter == 0 {
+			// Get generation number
+			line_slice := strings.Split(line, "||")
+			generation_number_str := line_slice[1]
+			generation_number, _ = strconv.Atoi(generation_number_str)
+			first_line_counter++
+			file_contents = file_contents + line	// to compute hmac later
+		} else {
+			// Using regex, check if last line
+			pipe_regex := regexp.MustCompile(`\x7c\x7c`)
+			if pipe_regex.MatchString(line) {
+				// Get entry number, salt, password, and comment
+				line_slice := strings.Split(line, "||")
+				entry, _ := strconv.Atoi(line_slice[0])
+				salt := []byte(line_slice[1])
+				password := []byte(line_slice[2])
+				comment := []byte(line_slice[3])
+				// Decode from base64
+				salt = base64.StdEncoding.DecodeString(salt)
+				password = base64.StdEncoding.DecodeString(password)
+				// Set entry values
+				wal443.passwords[entry].salt = salt
+				wal443.passwords[entry].password = password
+				wal443.passwords[entry].comment = comment
+				file_contents = file_contents + line	// to compute hmac later
+			} else {
+				// Load last line into the file_hmac_base64 variable
+				file_hmac_base64 = line
+			}
+		}
+	}
+
+	// Check validity of password
+	// Convert masterPassword to 128-bit AES: w_k = truncate(16, sha1(masterPassword))
+	masterPassword_sha1 := sha1.Sum(wal443.masterPassword)
+	w_k = masterPassword_sha1[:16]
+
+	// Perform HMAC(key = w_k, message = lines in the file)
+	HMAC_calc := hmac.New(sha1.New, w_k)
+	file_contents_arr := []byte(file_contents)
+	HMAC_calc.Write(file_contents_arr)
+	new_hmac := HMAC_calc.Sum(nil)
+
+	// Revert base64 encoding of file hmac
+	file_hmac, _ := base64.StdEncoding.DecodeString(file_hmac_base64)
+
+	// Check if the two hashes are equal
+	if !(hmac.Equal(file_hmac, new_hmac)) {
+		// Wrong password entered
+		fmt.Printf("Aborting, wrong password entered!!\n")
+		os.Exit(-1)
+	}
+
+	file_contents = file_contents + "\n"
 
 	// Return the wall
 	return &wal443
@@ -195,6 +273,8 @@ func loadWallet(filename string) *wallet {
 func (wal443 wallet) saveWallet() bool {
 
 	// Setup the wallet
+	wallet_file_content := file_contents + file_hmac_base64 + "\n"
+	ioutil.WriteFile(wal443.filename, []byte(wallet_file_content), 0644)
 
 	// Return successfully
 	return true
@@ -211,31 +291,85 @@ func (wal443 wallet) saveWallet() bool {
 
 func (wal443 wallet) processWalletCommand(command string) bool {
 
+	// Update Last modified time and generation number
+	const pipe_symbols_hex = "7c7c"
+	pipe_symbols_dec, _ := hex.DecodeString(pipe_symbols_hex)
+	pipe_symbols := string(pipe_symbols_dec)
+	generation_number_str := strconv.Itoa(generation_number + 1)
+	systemTime := time.Now()
+	file_contents_for_hmac := systemTime.String() + pipe_symbols + generation_number_str + pipe_symbols
+	file_contents = file_contents_for_hmac + "\n"
+
 	// Process the command 
 	switch command {
 	case "add":
-		// DO SOMETHING HERE, e.g., wal443.addPassword(...)
+		// Prompt the user for a password
+		// UI NEEDED
+		password := "testing"
+		// Add new entry to passwords[]
+		var new_entry walletEntry
+		// Generate salt
+
+		// Zero right pad password
+		// Prompt the user for a comment
+		// UI NEEDED
+		// 128-bit AES encrypt the password: AES(w_k, salt|pwd)
+		// Save salt, password and comment to passwords[]
+		append(wal443, new_entry)
 
 	case "del":
 		// DO SOMETHING HERE
-		
+		// Prompt the user for a password
+		// UI NEEDED
+		password := "testing"
+		// Decrypts every password in passwords[]
+		// 	compare to desired password
+		// 	when found, remove entry
+
 	case "show":
 		// DO SOMETHING HERE
-		
+		// Prompt the user for keyword in comment
+		// UI NEEDED
+		keyword = "comment"
+		// Look for keyword in comments of each entry in passwords[]
+		//	when found, decrypt password and show entry, password and comment
+
 	case "chpw":
 		// DO SOMETHING HERE
-		
+		// Run "show" code
+		// Prompt the user for entry number to change password
+		// UI NEEDED
+		entry = "1"
+		// Prompt the user for new password
+		// UI NEEDED
+		password = "testing2"
+		// Zero right pad password
+		// 128-bit AES encrypt the password: AES(w_k, salt|pwd)
+		// Save password to entry in passwords[]
+
 	case "reset":
 		// DO SOMETHING HERE
-		
+		// Prompt the user for a new password
+		// UI NEEDED
+		// For every password, decrypt it, and encrypt it again with new password
+
 	case "list":
 		// DO SOMETHING HERE
-		
+		// Iterate through the wallet entries, and print entry num, and comments
 	default:
 		// Handle error, return failure
 		fmt.Fprintf(os.Stderr, "Bad/unknown command for wallet [%s], aborting.\n", command)
 		return false
 	}
+
+	// Update file_contents for saving...
+	// Add entry number || salt || password || comment \n to file_contents for every entry
+	// Simultaneously, add the same infor without \n to file_contents_for_hmac
+	file_contents = 
+	file_contents_for_hmac = 
+
+	// Update HMAC after changes for saving...
+	file_hmac_base64 = 
 
 	// Return sucessfull
 	return true
